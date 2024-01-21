@@ -1,0 +1,154 @@
+version: '3.5'
+services:
+ zabbix-server:
+  image: docker.io/zabbix/zabbix-server-pgsql:centos-6.0.25
+  ports:
+   - "10051:10051"
+  volumes:
+   - /etc/localtime:/etc/localtime:ro
+   - /etc/timezone:/etc/timezone:ro
+   - zabbix-server-alertscripts:/usr/lib/zabbix/alertscripts:rw
+   - zabbix-server-externalscripts:/usr/lib/zabbix/externalscripts:ro
+   - zabbix-server-export:/var/lib/zabbix/export:rw
+   - zabbix-server-modules:/var/lib/zabbix/modules:ro
+   - zabbix-server-enc:/var/lib/zabbix/enc:ro
+   - zabbix-server-ssh_keys:/var/lib/zabbix/ssh_keys:ro
+   - zabbix-server-mibs:/var/lib/zabbix/mibs:ro
+   - zabbix-server-snmptrap:/var/lib/zabbix/snmptraps:ro
+  secrets:
+     - password_pgsql
+  links:
+   - postgres-server:postgres-server
+  ulimits:
+   nproc: 65535
+   nofile:
+    soft: 20000
+    hard: 40000
+  deploy:
+   resources:
+    limits:
+      cpus: '0.70'
+      memory: 1G
+    reservations:
+      cpus: '0.5'
+      memory: 512M
+  env_file:
+   - .env_pgsql
+   - .env_srv
+  depends_on:
+   - postgres-server
+  networks:
+   zbx_net:
+     aliases:
+      - zabbix-server
+      - zabbix-server-pgsql
+      - zabbix-server-centos-pgsql
+      - zabbix-server-pgsql-centos
+  stop_grace_period: 30s
+  sysctls:
+   - net.ipv4.ip_local_port_range=1024 65000
+   - net.ipv4.conf.all.accept_redirects=0
+   - net.ipv4.conf.all.secure_redirects=0
+   - net.ipv4.conf.all.send_redirects=0
+  labels:
+   com.zabbix.description: "Zabbix server with PostgreSQL database support"
+   com.zabbix.company: "Zabbix LLC"
+   com.zabbix.component: "zabbix-server"
+   com.zabbix.dbtype: "pgsql"
+   com.zabbix.os: "centos"
+
+ zabbix-web:
+  image: docker.io/zabbix/zabbix-web-nginx-pgsql:centos-6.0.25
+  ports:
+   - "80:8080"
+   - "443:8443"
+  links:
+   - postgres-server:postgres-server
+   - zabbix-server:zabbix-server
+  volumes:
+   - /etc/localtime:/etc/localtime:ro
+   - /etc/timezone:/etc/timezone:ro
+   - zabbix-web-ssl:/etc/ssl/nginx:ro
+   - zabbix-web-modules:/usr/share/zabbix/modules/:ro
+  secrets:
+     - password_pgsql
+  deploy:
+   resources:
+    limits:
+      cpus: '0.70'
+      memory: 512M
+    reservations:
+      cpus: '0.5'
+      memory: 256M
+  env_file:
+   - .env_pgsql
+   - .env_web
+  depends_on:
+   - postgres-server
+   - zabbix-server
+  healthcheck:
+   test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+   interval: 10s
+   timeout: 5s
+   retries: 3
+   start_period: 30s
+  networks:
+   zbx_net:
+    aliases:
+     - zabbix-web-nginx-pgsql
+     - zabbix-web-nginx-centos-pgsql
+     - zabbix-web-nginx-pgsql-centos
+  stop_grace_period: 10s
+  sysctls:
+   - net.core.somaxconn=65535
+  labels:
+   com.zabbix.description: "Zabbix frontend on Nginx web-server with PostgreSQL database support"
+   com.zabbix.company: "Zabbix LLC"
+   com.zabbix.component: "zabbix-frontend"
+   com.zabbix.webserver: "nginx"
+   com.zabbix.dbtype: "pgsql"
+   com.zabbix.os: "centos"
+
+ postgres-server:
+  image: docker.io/timescale/timescaledb:2.13.1-pg16
+  command: -c 'max_connections=200'
+#  ports:
+#   - "5432:5432"
+  volumes:
+   - postgres-server-data:/var/lib/postgresql/data:rw
+  env_file:
+   - .env_pgsql
+  stop_grace_period: 1m
+  secrets:
+     - password_pgsql
+  networks:
+   zbx_net:
+    aliases:
+     - postgres-server
+     - pgsql-server
+     - pgsql-database
+
+networks:
+  zbx_net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.16.238.0/24
+
+volumes:
+   zabbix-server-alertscripts:
+   zabbix-server-externalscripts:
+   zabbix-server-export:
+   zabbix-server-modules:
+   zabbix-server-enc:
+   zabbix-server-ssh_keys:
+   zabbix-server-mibs:
+   zabbix-server-snmptrap:
+   zabbix-web-ssl:
+   zabbix-web-modules:
+   postgres-server-data:
+
+secrets:
+  password_pgsql:
+    file: .password_pgsql.txt
